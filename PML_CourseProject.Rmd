@@ -1,0 +1,122 @@
+---
+title: "Excercise Predictive Model Development"
+author: "TV"
+date: "Thursday, November 20, 2014"
+output: html_document
+---
+
+# Summary  
+This report describes the development of a model which can be used to predict how well a person performs a particular weight lifting excercise using machine learning and the Weight Lifting Excercise (WLE) dataset which can be downloaded from [this website](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises). The final model uses 7 features as predicting variables with random forest learning method. The expected out-of-sample error is 1.33%, which is estimated by k-fold cross-validation.  
+
+# Prepare Data  
+## Load and clean data
+The raw data contains 19622 observations with 160 variables. Not all of these variables are needed as features for the model for the following reasons:  
+* 1) Some variables contain numeric values but were formatted as factor. Therefore, it is necessary to clean and format the data properly before using it to build the predictive model.  
+* 2) Many variables contain missing data (empty or NA) or data that is irrelevant (eg. username, time) to the outcome(classe).  
+ 
+```{r, echo=TRUE,cache=TRUE, warning=FALSE}
+# Load the data
+raw_data <- read.csv("pml-training.csv")
+# Define a function used to convert data from factor to numeric.
+convert <- function(x){as.numeric(as.character(x))}
+# Convert data collected from devices (columns 8th - 159th) to numeric 
+reformat_data <- sapply(raw_data[, c(8:159)], convert)
+reformat_data <- cbind(raw_data[, c(1:7)], reformat_data, raw_data[, 160])
+names(reformat_data) <- names(raw_data)
+# Define a function to count the non NA values in the data set
+count_NonNA <- function(x){sum(is.na(x) == FALSE)}
+# Extract data with only variables with most values (>1000 observation)
+var_NonNA <- as.data.frame(sapply(reformat_data, count_NonNA))
+index_NonNA <- which(var_NonNA > 1000)
+clean_data <- reformat_data[, index_NonNA] 
+```
+
+## Partition data 
+In order to build a model which can classify how well a subject performs the excercise, it is necessary to partition the availbale data into subsets that will be used for training and testing purposes. 25% of the data is hold out as a 'testing' set, while the remaining data is used as 'training' set.  
+
+```{r, echo=TRUE,cache=TRUE, warning=FALSE}
+library(caret)
+set.seed(125)
+index <- createDataPartition(clean_data$classe, p = 0.75, list = FALSE)
+training <- clean_data[index, ]
+testing <- clean_data[-index, ]
+```
+
+# Build Model  
+## Select features and machine learning method
+Among 60 variables in the 'training' set, there are 52 variables that represent the activity measured from devices, and thus are candidates for model building process. Including all 52 variables as features in a model will not be a good practice for the following reasons:  
+* 1) The model may be overfitting.
+* 2) Test data may not have all the included features.  
+However, without a domain knowledge of how each variable affects the classification of excercise's performance, it is difficult to reduce the set of predictors. For training purpose, all 52 variables were initially included. We later examine the importance of each of these variables and only include those that are highly important.  
+Random forest is one of the most common machine learning method used to build classifiers with high accuracy. Therefore, it is chosen to be the learning method used in this study.  
+```{r, echo=TRUE,cache=TRUE, warning=FALSE}
+# The 52 variables used as predicting variables
+print (names(training[, c(8:59)]))
+# Model with 52 predictors
+model_RF52 <- train(classe ~ roll_belt + pitch_belt + yaw_belt + total_accel_belt + gyros_belt_x + gyros_belt_y + gyros_belt_z + accel_belt_x + accel_belt_y + accel_belt_z + magnet_belt_x + magnet_belt_y + magnet_belt_z + roll_arm + pitch_arm + yaw_arm + total_accel_arm + gyros_arm_x + gyros_arm_y + gyros_arm_z + accel_arm_x + accel_arm_y + accel_arm_z + magnet_arm_x + magnet_arm_y + magnet_arm_z + roll_dumbbell + pitch_dumbbell + yaw_dumbbell + total_accel_dumbbell + gyros_dumbbell_x + gyros_dumbbell_y + gyros_dumbbell_z + accel_dumbbell_x + accel_dumbbell_y + accel_dumbbell_z + magnet_dumbbell_x + magnet_dumbbell_y + magnet_dumbbell_z + roll_forearm + pitch_forearm + yaw_forearm + total_accel_forearm + gyros_forearm_x + gyros_forearm_y + gyros_forearm_z + accel_forearm_x + accel_forearm_y + accel_forearm_z + magnet_forearm_x + magnet_forearm_y + magnet_forearm_z, data = training, method = "rf")
+print(model_RF52)
+# Calculate accuracy of model_RF52
+pred_RF52 <- predict(model_RF52, testing)
+# Confusion matrix
+print(table(pred_RF52, testing$classe))
+```
+
+The 'model_RF52' is quite accurate with 31 misclassified cases (99.4% accuracy). Next, we shall examine the importance of variables used in the model to see if it is possible to reduce the set of predicting variables.  
+
+## Tune model  
+Using the varImp() function of the "caret" package to calculate the importance of variables in the 'model\_RF52'. We then include the first 10, 7, and 3 highly important variables into models 'model\_RF10', 'model\_RF7', 'model_RF3' respectively, and recalculate the accuracy of each model. 
+
+```{r, echo=TRUE,cache=TRUE, warning=FALSE}
+# Calculate variable importance
+var_RF52 <- varImp(model_RF52)
+print(var_RF52)
+# Model with 10 predicting variables
+model_RF10 <- train(classe ~ roll_belt + pitch_forearm + yaw_belt + pitch_belt + roll_forearm + magnet_dumbbell_z + magnet_dumbbell_y + accel_dumbbell_y + accel_forearm_x + roll_dumbbell, data = training, method = 'rf')
+model_RF7 <- train(classe ~ roll_belt + pitch_forearm + yaw_belt + pitch_belt + roll_forearm + magnet_dumbbell_z + magnet_dumbbell_y, data = training, method = 'rf')
+model_RF3 <- train(classe ~ roll_belt + pitch_forearm + yaw_belt, data = training, method = 'rf')
+print(model_RF10)
+print(model_RF7)
+print(model_RF3)
+# Calculate accuracy of model_RF10, model_RF7, model_RF3
+pred_RF10 <- predict(model_RF10, testing)
+pred_RF7 <- predict(model_RF7, testing)
+pred_RF3 <- predict(model_RF3, testing)
+print("Confusion matrix for model_RF10, model_RF7, model_RF3")
+print(table(pred_RF10, testing$classe))
+print(table(pred_RF7, testing$classe))
+print(table(pred_RF3, testing$classe))
+print("Accuracy of model_RF10, model_RF7, model_RF3")
+print(sum((pred_RF10 == testing$classe) == TRUE)/dim(testing[1]))
+print(sum((pred_RF7 == testing$classe) == TRUE)/dim(testing[1]))
+print(sum((pred_RF3 == testing$classe) == TRUE)/dim(testing[1]))
+```
+
+The accuracy of the models 'model\_RF10', 'model\_RF7', 'model_RF3' are 98.8%, 98.7%, 86.2% respectively. We chose 7 predicting variables to be included in the final model as this not preserves the high accuracy of the prediction but also reduces the running time of the cross-validation process, which is later used to estimate the out-of-sample error.  
+
+# Estimate out-of-sample error  
+The sample data is partioned into 4 equal-sized chunks. In one round of analysis, one chunk is hold out to be a testing set, while the remaining chunks are used as training set. This training set is then used to train the model similar using the 7 features selected from above. This model will be applied to the testing set to calculate the misclassification rate. This process is repeated 4 times with 4 different testing sets obtained from the k-fold partitioning. The estimated out-of-sample error rate is calculated as the average misclassification rate over 4 rounds of analyses. This value is calculated to be 1.33%
+
+```{r, echo=TRUE,cache=TRUE, warning=FALSE}
+set.seed(130)
+# Partition data into 4 folds
+folds <- createFolds(clean_data$classe, k = 4, returnTrain=FALSE)
+# Initialize total error rate
+tot_err <- 0
+# Apply k-fold cross-validation
+for (i in 1:4){
+        # Create training and testing sets
+        cv_Test <- clean_data[folds[[i]], ]
+        cv_Train <- clean_data[-folds[[i]], ]
+        # Train model using 7 selected features
+        cv_RF7 <- train(classe ~ roll_belt + pitch_forearm + yaw_belt + pitch_belt + roll_forearm + magnet_dumbbell_z + magnet_dumbbell_y, data = cv_Train, method = 'rf')
+        # Calculate mis-classification rate
+        pred <- predict(cv_RF7, cv_Test)
+        correct <- pred == cv_Test$classe
+        err <- sum(correct == FALSE)
+        tot_err = tot_err + err/length(folds[[i]])
+}
+# Calculate out-of-sample error rate:
+oos_err <- tot_err/4
+print(oos_err)
+```
+
